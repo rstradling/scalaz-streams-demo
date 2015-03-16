@@ -1,0 +1,1 @@
+This is an early pass at using Scalaz-streams.  It assumes that you have RabbitMQ up and running.  It takes some dummy json data, publishes it to a queue, and listens to the queue, converting it back to json.  At some point, it will put the data into an H2 database.  It is meant to illustrate my learnings with Scalaz-streams that is also hopefully helpful to others. 

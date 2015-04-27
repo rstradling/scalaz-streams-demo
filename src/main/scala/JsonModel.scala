@@ -19,16 +19,18 @@ object JsonModel {
 //  println(result.spaces4)
 
  // assert(result.array.exists(_.length == 3))
+
+  case class Person(firstName: String, lastName : String,
+                    email: String, homePhone: Option[String], workPhone: Option[String])
+
+  object Person {
+    implicit def PersonCodecJson: CodecJson[Person] =
+      casecodec5(Person.apply, Person.unapply)("firstName", "lastName", "email",
+        "homePhone", "workPhone")
+  }
 }
 
 
-case class Person(firstName: String, lastName : String,
-                  email: String, homePhone: Option[String], workPhone: Option[String])
 
-object Person {
-  implicit def PersonCodecJson: CodecJson[Person] =
-    casecodec5(Person.apply, Person.unapply)("firstName", "lastName", "email",
-                                              "homePhone", "workPhone")
-}
 
 

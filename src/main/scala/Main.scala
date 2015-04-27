@@ -1,10 +1,11 @@
 import RabbitMQ.Subscriber
 import argonaut.Json
-import com.rabbitmq.client.AMQP.Connection
 import com.rabbitmq.client.Channel
-
+import JsonModel._
+import doobie.free.connection.ConnectionOp
 import scalaz.concurrent.Task
-import scalaz.{-\/, \/-, \/}
+import scalaz._
+import doobie.imports._, scalaz._, Scalaz._, scalaz.concurrent.Task
 
 /**
  * Created by ryanstradling on 3/15/15.
@@ -32,6 +33,7 @@ object Main extends App {
     Process.emitAll(data.map(_.toString)) flatMap pub.publishProcess
   }
 
+
   override def main (args : Array[String]): Unit = {
     import argonaut._, Argonaut._
     val jsonContacts: List[Json] = createContacts.map(x => x.asJson)
@@ -39,14 +41,21 @@ object Main extends App {
     val channel = RabbitMQ.Channel(connection)
     val queue = RabbitMQ.Queue(channel)(qName)
 
-    publishContacts(channel, jsonContacts).run.run
-
     val sub = Subscriber(channel, qName)
-    val process = sub.subscribeZAll flatMap JsonConverter.process
-    process.run.runAsync(_ match {
-      case \/-(right) => System.out.println(right)
-      case -\/(left) => System.out.println(left)
+    val ret: Process[Task, Int] = for {
+      a <- sub.subscribeZAll
+      b <- JsonConverter.process(a)
+      c <- Database.addPerson(b)
+    } yield (c)
+
+    ret.run.runAsync (_ match {
+      case \/-(right) => System.out.println(s"Right = $right")
+      case -\/(left) => System.out.println(s"Left = $left")
     })
 
+    publishContacts(channel, jsonContacts).runLog.runAsync(x => x match {
+      case \/-(right) => println(right)
+      case -\/(left) => println(left)
+    })
   }
 }

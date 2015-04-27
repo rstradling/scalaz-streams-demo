@@ -1,4 +1,5 @@
-import com.rabbitmq.client.{ConnectionFactory, QueueingConsumer}
+
+import com.rabbitmq.client._
 
 import scalaz.{\/, -\/, \/-}
 import scalaz.concurrent._
@@ -15,7 +16,7 @@ object RabbitMQ {
         channel.basicPublish("", qName, null, message.getBytes())
     }
     def publishTask(channel: com.rabbitmq.client.Channel, qName: String, message: String): Task[Unit] = {
-      scalaz.concurrent.Task.delay(publish(channel, qName, message))
+      scalaz.concurrent.Task(publish(channel, qName, message))
     }
 
   }
@@ -27,23 +28,29 @@ object RabbitMQ {
   }
 
   object Subscriber {
-    def initialize(chan: com.rabbitmq.client.Channel, qName: String) : QueueingConsumer = {
-      val consumer = new QueueingConsumer(chan)
-      chan.basicConsume(qName, true, consumer)
-      consumer
-    }
-    def subscribe(consumer : QueueingConsumer): String = {
-      val delivery = consumer.nextDelivery()
-      val message = new String(delivery.getBody())
-      System.out.println(s"message = $message")
-      message
+    def subscriber(chan: com.rabbitmq.client.Channel, qName: String, tag:String = "myConsumerTag") : Task[String] = {
+       val subscribe : Task[String] =
+         Task async { cb =>
+          chan.basicConsume(qName, true, tag,
+            new DefaultConsumer(chan) {
+              override def handleDelivery(consumerTag : String,
+                                           envelope: Envelope,
+                                           properties : AMQP.BasicProperties,
+                                           body : Array[Byte]): Unit = {
+                val routingKey = envelope.getRoutingKey
+                val contentType = properties.getContentType
+                val deliveryTag = envelope.getDeliveryTag
+                cb(\/-(new String(body)))
+              }
+            }
+          )}
+      subscribe
     }
   }
 
   case class Subscriber(chan: com.rabbitmq.client.Channel, qName: String) {
-    val consumer = Subscriber.initialize(chan, qName)
-    val subscribeZ1: Process[Task, String] = Process.eval(Task.fork(Task.delay(Subscriber.subscribe(consumer))))
-    val subscribeZAll = subscribeZ1.repeat
+    val consumer = Subscriber.subscriber(chan, qName)
+    val subscribeZAll: Process[Task, String] = Process.eval(consumer)
   }
 
   object Queue {
@@ -86,17 +93,14 @@ object RabbitMQ {
 
       val sub = Subscriber(chan, qName)
       val output = sub.subscribeZAll.runLog
-      val data = output.runAsyncInterruptibly(_ match {
-        case \/-(right) => System.out.println(right)
-        case -\/(left) => System.out.println(left)
+      val data = output.runAsync(x => x match {
+        case \/-(right) => right.foreach(println _)
+        case -\/(left) => println("Hit an error")
       })
-      System.out.println(output)
 
       Publisher.publish(chan, qName, "HELLO")
       Publisher.publish(chan, qName, "HELLO AGAIN")
-      System.out.println("HERE")
       Thread.sleep(5000)
-      data()
     }
   }
 }
